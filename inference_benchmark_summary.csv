@@ -1,0 +1,7 @@
+model,batch,ttft_s_median,tok_s_median,tok_s_min,tok_s_max,peak_gb,footprint_gb,roofline_tok_s,share_of_roofline
+"Qwen2.5 3B Instruct, FP16",1,0.197,20.53,19.94,20.58,6.27,6.172,51.847,0.396
+"Qwen2.5 3B Instruct, FP16",4,0.726,71.47,70.98,71.51,6.51,6.172,207.388,0.345
+"Qwen2.5 3B Instruct, FP16",8,1.526,101.93,101.67,102.05,6.85,6.172,414.776,0.246
+"Qwen2.5 7B Instruct, 4 bit",1,0.542,15.97,15.9,16.03,6.08,5.443,58.791,0.272
+"Qwen2.5 7B Instruct, 4 bit",4,1.697,29.78,29.56,30.11,6.43,5.443,235.164,0.127
+"Qwen2.5 7B Instruct, 4 bit",8,3.341,48.03,48.01,48.04,7.0,5.443,470.329,0.102
