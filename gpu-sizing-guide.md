@@ -1,3 +1,8 @@
+---
+title: "From requests per day to GPU hours"
+permalink: /gpu-sizing-guide/
+---
+
 # From requests per day to GPU hours
 
 A buyer’s guide to sizing AI inference
