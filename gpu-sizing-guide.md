@@ -1,6 +1,6 @@
 ---
 title: "From requests per day to GPU hours"
-permalink: /gpu-sizing-guide/
+permalink: /from-requests-to-gpu-hours/
 ---
 
 # From requests per day to GPU hours
