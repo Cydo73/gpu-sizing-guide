@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPU sizing calculator: from requests per day to GPU hours and cost</title>
+<style>
+:root{--bg:#f6f7f7;--surface:#fff;--text:#1c2326;--muted:#5b676b;--line:#d9dfe1;--accent:#0d7a7a;--accent-soft:#e8f4f4;--warn:#9a3412;--warn-soft:#fdf0e8;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121719;--surface:#1a2023;--text:#e7ecee;--muted:#9aa7ab;--line:#2c3539;--accent:#5cc2c2;--accent-soft:#193234;--warn:#f0a070;--warn-soft:#2e2118;color-scheme:dark}}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--text);background:var(--bg)}
+main{max-width:1120px;margin:0 auto;padding:28px 18px 56px}
+h1{font-size:1.7rem;line-height:1.2;margin:0 0 6px}
+h2{font-size:1.05rem;margin:0 0 12px}
+p{margin:0 0 10px}
+.lede{color:var(--muted);max-width:68ch;margin-bottom:22px}
+a{color:var(--accent)}
+.grid{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.field{display:block;margin-bottom:12px}
+.field span{display:block;font-size:.85rem;color:var(--muted);margin-bottom:3px}
+input,select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input:disabled{opacity:.6}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:.8rem;color:var(--muted);margin:-6px 0 12px}
+button{font:inherit;cursor:pointer;color:var(--accent);background:transparent;border:1px solid var(--accent);border-radius:6px;padding:6px 12px}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px}
+@media (max-width:620px){.tiles{grid-template-columns:minmax(0,1fr)}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.tile small{display:block;color:var(--muted);font-size:.8rem}
+.tile b{display:block;font-size:1.6rem;line-height:1.25;font-variant-numeric:tabular-nums}
+.tile em{font-style:normal;font-size:.85rem;color:var(--muted)}
+.bad b,.bad em{color:var(--warn)}
+.badge{display:inline-block;font-size:.72rem;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:middle}
+.badge.est{background:var(--warn-soft);color:var(--warn)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.n,th.n{text-align:right}
+th{font-weight:600;color:var(--muted);font-size:.8rem}
+tr.sel td{background:var(--accent-soft)}
+tr.best td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+td.wrap{white-space:normal}
+.note{font-size:.85rem;color:var(--muted)}
+.msg{color:var(--warn);font-weight:600}
+ul{margin:0 0 10px;padding-left:20px}
+</style>
+</head>
+<body>
+<main>
+<h1>GPU sizing calculator</h1>
+<p class="lede">Turn requests per day into GPU hours and a monthly bill. It uses the measured results from the guide <a href="https://cydo73.github.io/gpu-sizing-guide/">From requests per day to GPU hours</a>. Speeds on the NVIDIA T4 are measured. Every other GPU is an estimate, and the page labels it that way.</p>
+
+<div class="grid">
+<div>
+  <section class="card">
+    <h2>Workload</h2>
+    <label class="field"><span>Requests per day</span><input id="req" type="number" min="1" step="any" value="10000"></label>
+    <div class="two">
+      <label class="field"><span>Input tokens per request</span><input id="tin" type="number" min="1" step="any" value="512"></label>
+      <label class="field"><span>Output tokens per request</span><input id="tout" type="number" min="1" step="any" value="256"></label>
+    </div>
+    <div class="two">
+      <label class="field"><span>Peak factor (times average)</span><input id="peak" type="number" min="1" step="any" value="3"></label>
+      <label class="field"><span>Target peak utilization (%)</span><input id="util" type="number" min="1" max="100" step="any" value="80"></label>
+    </div>
+    <label class="field"><span>Answer time limit (seconds)</span><input id="target" type="number" min="1" step="any" value="20"></label>
+  </section>
+  <section class="card">
+    <h2>Model and batch</h2>
+    <label class="field"><span>Model</span><select id="model"><option value="3B">Qwen2.5 3B Instruct, FP16</option><option value="7B">Qwen2.5 7B Instruct, 4 bit</option></select></label>
+    <label class="field"><span>Batch size</span><select id="batch"><option>1</option><option selected>4</option><option>8</option></select></label>
+    <p class="note" id="measured"></p>
+  </section>
+  <section class="card">
+    <h2>GPU and price</h2>
+    <label class="field"><span>GPU</span><select id="gpu"></select></label>
+    <div class="two">
+      <label class="field"><span>Price per instance hour ($)</span><input id="price" type="number" min="0" step="any"></label>
+      <label class="field"><span>GPUs per instance</span><input id="per" type="number" min="1" step="1"></label>
+    </div>
+    <div class="two">
+      <label class="field"><span>Memory bandwidth (GB/s)</span><input id="bw" type="number" min="1" step="any"></label>
+      <label class="field"><span>Share of ceiling (%)</span><input id="eff" type="number" min="1" max="100" step="any"></label>
+    </div>
+    <p class="hint" id="effhint"></p>
+    <button type="button" id="reset">Reset to the guide example</button>
+  </section>
+</div>
+
+<div aria-live="polite">
+  <div id="out"></div>
+</div>
+</div>
+
+<section class="card">
+  <h2>How the numbers are built</h2>
+  <ul>
+    <li>Input speed is batch size × 512 ÷ first token time. GPU time per request is input tokens ÷ input speed, plus output tokens ÷ total output speed.</li>
+    <li>Busy GPU hours per day is requests × GPU time ÷ 3,600. Peak load is busy hours ÷ 24 × the peak factor. GPUs needed is the peak load ÷ the target utilization, rounded up.</li>
+    <li>GPUs billed is GPUs needed rounded up to a whole instance. Monthly cost is instances × price per instance hour × 730 hours. The GPUs are assumed to run all month.</li>
+    <li>For a GPU other than the T4, speed is the measured T4 speed × (its bandwidth ÷ 320), at the same share of the ceiling. Change the share of ceiling to test other assumptions. The guide measured 10% to 40%.</li>
+  </ul>
+  <p class="note">Measured on one NVIDIA T4 on 26 October 2026, with a 512 token prompt and 256 token answer, using Hugging Face Transformers. Prices are AWS on demand list rates for US East (N. Virginia), Linux, as reported by third party trackers on 20 November 2026. They leave out storage, data transfer and support, and they are not quotes. Bandwidths are published figures: T4 320, L4 300, A10G 600, A100 40 GB 1,555 and H100 SXM 3,350 GB/s. On AWS the A100 and H100 are sold only as 8 GPU instances. Input speed is derived from first token times and is approximate.</p>
+</section>
+</main>
+
+<script>
+var DATA={
+ "3B":{1:{ttft:0.197,tps:20.53,share:0.396},4:{ttft:0.726,tps:71.47,share:0.345},8:{ttft:1.526,tps:101.93,share:0.246}},
+ "7B":{1:{ttft:0.542,tps:15.97,share:0.272},4:{ttft:1.697,tps:29.78,share:0.127},8:{ttft:3.341,tps:48.03,share:0.102}}
+};
+var GPUS=[
+ {id:"T4",name:"NVIDIA T4 (g4dn.xlarge)",bw:320,price:0.526,per:1},
+ {id:"L4",name:"NVIDIA L4 (g6.xlarge)",bw:300,price:0.8048,per:1},
+ {id:"A10G",name:"NVIDIA A10G (g5.xlarge)",bw:600,price:1.006,per:1},
+ {id:"A100",name:"NVIDIA A100 40 GB (p4d.24xlarge)",bw:1555,price:21.9576,per:8},
+ {id:"H100",name:"NVIDIA H100 (p5.48xlarge)",bw:3350,price:55.04,per:8}
+];
+var HOURS=730, DAYS=365/12;
+var $=function(id){return document.getElementById(id)};
+
+function calc(p){
+  var s=DATA[p.model][p.batch];
+  var eff=(p.eff==null)?s.share:p.eff;
+  var ratio=(p.bw/320)*(eff/s.share);
+  var prefill=p.batch*512/s.ttft*ratio;
+  var total=s.tps*ratio;
+  var sec=p.tin/prefill+p.tout/total;
+  var busyDay=p.req*sec/3600;
+  var peakLoad=busyDay/24*p.peak;
+  var need=Math.max(1,Math.ceil(peakLoad/p.util-1e-9));
+  var billed=Math.ceil(need/p.per)*p.per;
+  var cost=billed/p.per*p.price*HOURS;
+  var perStream=total/p.batch;
+  var ans=s.ttft*(p.tin/512)/ratio+p.tout/perStream;
+  var needHrs=busyDay*DAYS;
+  return {sec:sec,busyDay:busyDay,avg:busyDay/24,peakLoad:peakLoad,need:need,billed:billed,
+    billedHrs:billed*HOURS,needHrs:needHrs,fleet:needHrs/(billed*HOURS),cost:cost,total:total,ans:ans,
+    per1k:cost/(p.req*DAYS/1000),perM:cost/(p.req*p.tout*DAYS/1e6),
+    tokDay:p.req*(p.tin+p.tout),measured:(p.bw===320&&p.eff==null)};
+}
+function num(id){var v=parseFloat($(id).value);return isFinite(v)?v:NaN}
+function read(){
+  var e=$("eff").value.trim();
+  return {req:num("req"),tin:num("tin"),tout:num("tout"),peak:num("peak"),util:num("util")/100,target:num("target"),
+    model:$("model").value,batch:parseInt($("batch").value,10),bw:num("bw"),price:num("price"),per:Math.round(num("per")),
+    eff:e===""?null:parseFloat(e)/100};
+}
+function valid(p){
+  var ok=[p.req,p.tin,p.tout,p.peak,p.util,p.target,p.bw,p.per].every(function(x){return isFinite(x)&&x>0});
+  return ok&&isFinite(p.price)&&p.price>=0&&p.util<=1&&(p.eff==null||(isFinite(p.eff)&&p.eff>0&&p.eff<=1));
+}
+function f0(n){return Math.round(n).toLocaleString("en-US")}
+function f1(n){return n.toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1})}
+function f2(n){return n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}
+function usd(n){return "$"+f0(n)}
+function badge(m){return m?'<span class="badge">Measured</span>':'<span class="badge est">Estimate</span>'}
+function clone(p,o){var q={};for(var k in p)q[k]=p[k];for(var j in o)q[j]=o[j];return q}
+
+function render(){
+  var p=read(), out=$("out");
+  var s=DATA[p.model][p.batch];
+  $("measured").innerHTML="Measured on a T4 at this setting: "+f1(s.tps)+" output tokens per second in total, "+f1(s.tps/p.batch)+" per stream, and "+f2(s.ttft)+" s to the first token.";
+  $("effhint").textContent="Leave the share blank to use the T4 measured share at this setting ("+f1(s.share*100)+"%).";
+  if(!valid(p)){out.innerHTML='<div class="card"><p class="msg">Enter positive numbers in every field. Utilization and share must be 100 or less.</p></div>';return}
+  var r=calc(p), within=r.ans<=p.target;
+  var h='';
+  h+='<div class="tiles">'
+   +'<div class="tile"><small>Monthly cost'+badge(r.measured)+'</small><b>'+usd(r.cost)+'</b><em>'+f0(r.billedHrs)+' billed GPU hours</em></div>'
+   +'<div class="tile"><small>GPUs billed</small><b>'+f0(r.billed)+'</b><em>'+f0(r.need)+' needed for the peak</em></div>'
+   +'<div class="tile'+(within?'':' bad')+'"><small>256 token answer time</small><b>'+f1(r.ans)+' s</b><em>'+(within?'Within the '+f0(p.target)+' s limit':'Over the '+f0(p.target)+' s limit by '+f1(r.ans-p.target)+' s')+'</em></div>'
+   +'</div>';
+  h+='<section class="card"><h2>From requests to a bill</h2><div class="scroll"><table><tbody>'
+   +row("Requests per day",f0(p.req))
+   +row("Tokens per day, input plus output",f0(r.tokDay))
+   +row("GPU time per request",f2(r.sec)+" s")
+   +row("Busy GPU hours per day",f1(r.busyDay)+" hours")
+   +row("Average load",f2(r.avg)+" of one GPU")
+   +row("Peak load",f2(r.peakLoad)+" GPUs")
+   +row("GPUs needed at "+f0(p.util*100)+"% peak utilization",f0(r.need))
+   +row("GPUs billed, rounded to whole instances",f0(r.billed))
+   +row("Billed GPU hours per month",f0(r.billedHrs))
+   +row("GPU hours of actual work per month",f0(r.needHrs))
+   +row("Share of billed hours that are busy",f0(r.fleet*100)+"%")
+   +row("Cost per 1,000 requests","$"+f2(r.per1k))
+   +row("Cost per million output tokens","$"+f2(r.perM))
+   +'</tbody></table></div></section>';
+  // batch comparison on the chosen GPU
+  h+='<section class="card"><h2>What batch size does on this GPU</h2><div class="scroll"><table><thead><tr><th>Batch</th><th class="n">GPU time per request</th><th class="n">GPUs billed</th><th class="n">Answer time</th><th class="n">Monthly cost</th><th>Answer limit</th></tr></thead><tbody>';
+  [1,4,8].forEach(function(b){
+    var q=clone(p,{batch:b}), c=calc(q);
+    h+='<tr'+(b===p.batch?' class="sel"':'')+'><td>'+b+'</td><td class="n">'+f2(c.sec)+' s</td><td class="n">'+f0(c.billed)+'</td><td class="n">'+f1(c.ans)+' s</td><td class="n">'+usd(c.cost)+'</td><td>'+(c.ans<=p.target?'Met':'Missed')+'</td></tr>';
+  });
+  h+='</tbody></table></div></section>';
+  // GPU comparison at the chosen batch
+  var rows=GPUS.map(function(g){var q=clone(p,{bw:g.bw,price:g.price,per:g.per}),c=calc(q);return {g:g,c:c}});
+  var best=null;
+  rows.forEach(function(x){if(x.c.ans<=p.target&&(best===null||x.c.cost<best.c.cost))best=x});
+  h+='<section class="card"><h2>Other GPUs at this model and batch</h2><div class="scroll"><table><thead><tr><th>GPU and AWS instance</th><th class="n">Price per instance hour</th><th class="n">Tokens per second</th><th class="n">GPUs needed</th><th class="n">GPUs billed</th><th class="n">Answer time</th><th class="n">Monthly cost</th><th>Basis</th></tr></thead><tbody>';
+  rows.forEach(function(x){
+    var cls=(x===best?'best':'')+((x.g.bw===p.bw&&x.g.price===p.price)?' sel':'');
+    h+='<tr class="'+cls+'"><td>'+x.g.name+'</td><td class="n">$'+f2(x.g.price)+'</td><td class="n">'+f1(x.c.total)+'</td><td class="n">'+f0(x.c.need)+'</td><td class="n">'+f0(x.c.billed)+'</td><td class="n">'+f1(x.c.ans)+' s</td><td class="n">'+usd(x.c.cost)+'</td><td>'+badge(x.c.measured)+'</td></tr>';
+  });
+  h+='</tbody></table></div><p class="note" style="margin-top:10px">'+(best?'The row with a bar on its left edge is the lowest cost option within your answer time limit.':'No GPU in this list meets your answer time limit at this setting.')+' Estimates assume the T4 share of the ceiling carries over to other GPUs, which is probably optimistic for fast GPUs on small models.</p></section>';
+  out.innerHTML=h;
+}
+function row(a,b){return '<tr><td class="wrap">'+a+'</td><td class="n">'+b+'</td></tr>'}
+
+function applyGpu(){
+  var g=GPUS[$("gpu").selectedIndex];
+  $("price").value=g.price;$("per").value=g.per;$("bw").value=g.bw;
+}
+function reset(){
+  $("req").value=10000;$("tin").value=512;$("tout").value=256;$("peak").value=3;$("util").value=80;$("target").value=20;
+  $("model").value="3B";$("batch").value="4";$("gpu").selectedIndex=0;$("eff").value="";applyGpu();render();
+}
+GPUS.forEach(function(g,i){var o=document.createElement("option");o.value=g.id;o.textContent=g.name;$("gpu").appendChild(o)});
+$("gpu").addEventListener("change",function(){applyGpu();render()});
+["req","tin","tout","peak","util","target","model","batch","price","per","bw","eff"].forEach(function(id){$(id).addEventListener("input",render);$(id).addEventListener("change",render)});
+$("reset").addEventListener("click",reset);
+applyGpu();render();
+</script>
+</body>
+</html>
